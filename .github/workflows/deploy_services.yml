@@ -1,0 +1,114 @@
+# github/workflows/deploy_services.yml
+
+name: 'Terraform Services Deploy'
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/services/**'
+  workflow_dispatch:
+
+jobs:
+  deploy_api_lambda:
+    name: 'Deploy API Gateway + Lambda'
+    runs-on: ubuntu-latest
+    env:
+      TF_WORKING_DIR: terraform/services/api-lambda
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -input=false -var="project_name=tf-multi-deploy"
+
+  deploy_ec2:
+    name: 'Deploy EC2'
+    runs-on: ubuntu-latest
+    env:
+      TF_WORKING_DIR: terraform/services/ec2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -input=false -var="project_name=tf-multi-deploy"
+
+  deploy_ecs:
+    name: 'Deploy ECS Fargate'
+    runs-on: ubuntu-latest
+    env:
+      TF_WORKING_DIR: terraform/services/ecs
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Build and Push Docker Image to ECR
+        id: build-image
+        env:
+          ECR_REPOSITORY: tf-multi-deploy/hello-ecs
+          IMAGE_TAG: latest
+        run: |
+          # 1. Login to ECR
+          aws ecr get-login-password --region eu-west-3 | docker login --username AWS --password-stdin $(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-3.amazonaws.com/$ECR_REPOSITORY
+          
+          # 2. Build the Docker image
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG ${TF_WORKING_DIR}
+
+          # 3. Tag the image
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG $(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-3.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+
+          # 4. Push the image to ECR
+          docker push $(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-3.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -input=false -var="project_name=tf-multi-deploy"

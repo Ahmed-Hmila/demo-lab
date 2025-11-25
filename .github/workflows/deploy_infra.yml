@@ -1,0 +1,51 @@
+# github/workflows/deploy_infra.yml
+
+name: 'Terraform Infra Deploy'
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/infra/**'
+  workflow_dispatch:
+
+jobs:
+  terraform:
+    name: 'Terraform Infra'
+    runs-on: ubuntu-latest
+    env:
+      TF_WORKING_DIR: terraform/infra
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3 # Doit correspondre à la variable par défaut dans variables.tf
+
+      - name: Terraform Init
+        id: init
+        run: terraform init
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -input=false
+
+      - name: Terraform Apply
+        id: apply
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        run: terraform apply -auto-approve -input=false
