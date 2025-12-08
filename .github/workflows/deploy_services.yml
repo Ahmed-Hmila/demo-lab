@@ -101,6 +101,10 @@ jobs:
           # Définir l'URL complète du dépôt ECR
           ECR_FULL_URL=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-3.amazonaws.com/$ECR_REPOSITORY
 
+          # Créer le repository s'il n'existe pas
+          aws ecr describe-repositories --repository-names $ECR_REPOSITORY || \
+          aws ecr create-repository --repository-name $ECR_REPOSITORY
+
           # 2. Build the Docker image
           docker build -t $ECR_REPOSITORY:$IMAGE_TAG ./terraform/services/ecs
 
