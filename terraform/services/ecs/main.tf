@@ -17,7 +17,7 @@ provider "aws" {}
 # ------------------------------------------------------------------------------
 
 data "terraform_remote_state" "infra" {
-  backend = "local" # Simuler le backend pour la démo
+  backend = "local" 
   config = {
     path = "../../infra/terraform.tfstate"
   }
