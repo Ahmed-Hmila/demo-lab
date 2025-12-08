@@ -32,7 +32,7 @@ resource "aws_vpc" "main" {
 resource "aws_subnet" "public" {
   count             = 2
   vpc_id            = aws_vpc.main.id
-  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)  
+  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index) # 10.0.0.0/24, 10.0.1.0/24
   availability_zone = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
 
@@ -45,7 +45,7 @@ resource "aws_subnet" "public" {
 resource "aws_subnet" "private" {
   count             = 2
   vpc_id            = aws_vpc.main.id
-  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index + 2)  
+  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index + 2) # 10.0.2.0/24, 10.0.3.0/24
   availability_zone = data.aws_availability_zones.available.names[count.index]
 
   tags = {
@@ -95,6 +95,32 @@ data "aws_availability_zones" "available" {
 # Sécurité (Security Groups)
 # ------------------------------------------------------------------------------
 
+# Groupe de sécurité pour ALB (Autorise le trafic entrant sur 80)
+resource "aws_security_group" "alb_sg" {
+  name        = "${var.project_name}-alb-sg"
+  description = "Allow HTTP inbound traffic to ALB"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description = "HTTP from ALB"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    security_groups = [aws_security_group.alb_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-alb-sg"
+  }
+}
+
 # Groupe de sécurité pour EC2 (SSH et HTTP)
 resource "aws_security_group" "ec2_sg" {
   name        = "${var.project_name}-ec2-sg"
@@ -102,11 +128,11 @@ resource "aws_security_group" "ec2_sg" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "HTTP from anywhere"
+    description = "HTTP from ALB"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.alb_sg.id]
   }
 
   ingress {
@@ -136,11 +162,11 @@ resource "aws_security_group" "ecs_sg" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "HTTP from anywhere"
+    description = "HTTP from ALB"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.alb_sg.id]
   }
 
   egress {
@@ -170,5 +196,90 @@ resource "aws_security_group" "lambda_sg" {
 
   tags = {
     Name = "${var.project_name}-lambda-sg"
+  }
+}
+
+# ------------------------------------------------------------------------------
+# Application Load Balancer (ALB)
+# ------------------------------------------------------------------------------
+
+resource "aws_lb" "main" {
+  name               = "${var.project_name}-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_sg.id]
+  subnets            = aws_subnet.public[*].id
+
+  tags = {
+    Name = "${var.project_name}-alb"
+  }
+}
+
+# Target Group pour EC2
+resource "aws_lb_target_group" "ec2" {
+  name        = "${var.project_name}-tg-ec2"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "instance"
+}
+
+# Target Group pour ECS
+resource "aws_lb_target_group" "ecs" {
+  name        = "${var.project_name}-tg-ecs"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip" # Fargate utilise le type IP
+}
+
+# Target Group pour Lambda
+resource "aws_lb_target_group" "lambda" {
+  name        = "${var.project_name}-tg-lambda"
+  target_type = "lambda"
+}
+
+# Listener HTTP sur le port 80
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ec2.arn # Action par défaut (EC2)
+  }
+}
+
+# Règles de routage pour les autres services
+resource "aws_lb_listener_rule" "ecs_rule" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 100
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ecs.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/ecs/*"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "lambda_rule" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 99
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.lambda.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/lambda/*"]
+    }
   }
 }

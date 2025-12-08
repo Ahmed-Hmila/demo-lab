@@ -5,7 +5,7 @@ name: 'Terraform Services Deploy'
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - 'terraform/services/**'
   workflow_dispatch:
@@ -96,16 +96,19 @@ jobs:
           IMAGE_TAG: latest
         run: |
           # 1. Login to ECR
-          aws ecr get-login-password --region eu-west-3 | docker login --username AWS --password-stdin $(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-3.amazonaws.com/$ECR_REPOSITORY
+          aws ecr get-login-password --region eu-west-3 | docker login --username AWS --password-stdin $(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-3.amazonaws.com
           
+          # Définir l'URL complète du dépôt ECR
+          ECR_FULL_URL=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-3.amazonaws.com/$ECR_REPOSITORY
+
           # 2. Build the Docker image
-          docker build -t $ECR_REPOSITORY:$IMAGE_TAG ${TF_WORKING_DIR}
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG ./terraform/services/ecs
 
           # 3. Tag the image
-          docker tag $ECR_REPOSITORY:$IMAGE_TAG $(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-3.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG $ECR_FULL_URL:$IMAGE_TAG
 
           # 4. Push the image to ECR
-          docker push $(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-3.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_FULL_URL:$IMAGE_TAG
 
       - name: Terraform Init
         run: terraform init

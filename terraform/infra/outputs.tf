@@ -39,3 +39,28 @@ output "aws_region" {
   description = "Région AWS."
   value       = var.aws_region
 }
+
+output "alb_dns_name" {
+  description = "Nom DNS de l'Application Load Balancer."
+  value       = aws_lb.main.dns_name
+}
+
+output "alb_arn" {
+  description = "ARN de l'Application Load Balancer."
+  value       = aws_lb.main.arn
+}
+
+output "tg_ec2_arn" {
+  description = "ARN du Target Group pour EC2."
+  value       = aws_lb_target_group.ec2.arn
+}
+
+output "tg_ecs_arn" {
+  description = "ARN du Target Group pour ECS."
+  value       = aws_lb_target_group.ecs.arn
+}
+
+output "tg_lambda_arn" {
+  description = "ARN du Target Group pour Lambda."
+  value       = aws_lb_target_group.lambda.arn
+}

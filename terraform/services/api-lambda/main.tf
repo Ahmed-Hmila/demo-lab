@@ -17,7 +17,7 @@ provider "aws" {}
 # ------------------------------------------------------------------------------
 
 data "terraform_remote_state" "infra" {
-  backend = "local"  
+  backend = "local" # Simuler le backend pour la démo
   config = {
     path = "../../infra/terraform.tfstate"
   }
@@ -48,6 +48,19 @@ resource "aws_iam_role" "lambda_exec" {
       }
     }]
   })
+
+  # Ajouter la politique pour l'invocation par l'ALB
+  inline_policy {
+    name = "alb_invoke_policy"
+    policy = jsonencode({
+      Version = "2012-10-17"
+      Statement = [{
+        Action   = "lambda:InvokeFunction"
+        Effect   = "Allow"
+        Resource = aws_lambda_function.hello_lambda.arn
+      }]
+    })
+  }
 }
 
 # Politique IAM pour les logs CloudWatch
@@ -68,61 +81,20 @@ resource "aws_lambda_function" "hello_lambda" {
 }
 
 # ------------------------------------------------------------------------------
-# API Gateway
+# ALB Integration
 # ------------------------------------------------------------------------------
 
-# Création de l'API REST
-resource "aws_api_gateway_rest_api" "hello_api" {
-  name        = "${var.project_name}-hello-api"
-  description = "API Gateway pour la fonction Lambda Hello"
+# Enregistrement de la fonction Lambda dans le Target Group
+resource "aws_lb_target_group_attachment" "lambda_tg_attachment" {
+  target_group_arn = data.terraform_remote_state.infra.outputs.tg_lambda_arn
+  target_id        = aws_lambda_function.hello_lambda.arn
 }
 
-# Création de la ressource (chemin)
-resource "aws_api_gateway_resource" "proxy" {
-  rest_api_id = aws_api_gateway_rest_api.hello_api.id
-  parent_id   = aws_api_gateway_rest_api.hello_api.root_resource_id
-  path_part   = "hello"
-}
-
-# Création de la méthode GET
-resource "aws_api_gateway_method" "proxy_method" {
-  rest_api_id   = aws_api_gateway_rest_api.hello_api.id
-  resource_id   = aws_api_gateway_resource.proxy.id
-  http_method   = "GET"
-  authorization = "NONE"
-}
-
-# Intégration de la méthode avec la fonction Lambda
-resource "aws_api_gateway_integration" "lambda_integration" {
-  rest_api_id             = aws_api_gateway_rest_api.hello_api.id
-  resource_id             = aws_api_gateway_resource.proxy.id
-  http_method             = aws_api_gateway_method.proxy_method.http_method
-  integration_http_method = "POST" # Lambda est toujours appelé via POST
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.hello_lambda.invoke_arn
-}
-
-# Déploiement de l'API
-resource "aws_api_gateway_deployment" "api_deployment" {
-  depends_on = [
-    aws_api_gateway_integration.lambda_integration,
-    aws_api_gateway_method.proxy_method
-  ]
-
-  rest_api_id = aws_api_gateway_rest_api.hello_api.id
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-# Permission pour API Gateway d'invoquer la fonction Lambda
-resource "aws_lambda_permission" "apigw_lambda" {
-  statement_id  = "AllowAPIGatewayInvoke"
+# Permission pour l'ALB d'invoquer la fonction Lambda
+resource "aws_lambda_permission" "alb_lambda" {
+  statement_id  = "AllowALBInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.hello_lambda.function_name
-  principal     = "apigateway.amazonaws.com"
-
-  # Source ARN pour restreindre l'invocation à cette API Gateway
-  source_arn = "${aws_api_gateway_rest_api.hello_api.execution_arn}/*/*"
+  principal     = "elasticloadbalancing.amazonaws.com"
+  source_arn    = data.terraform_remote_state.infra.outputs.alb_arn
 }

@@ -67,3 +67,10 @@ resource "aws_instance" "web_server" {
     Name = "${var.project_name}-ec2-web-server"
   }
 }
+
+# Enregistrement de l'instance EC2 dans le Target Group
+resource "aws_lb_target_group_attachment" "ec2_tg_attachment" {
+  target_group_arn = data.terraform_remote_state.infra.outputs.tg_ec2_arn
+  target_id        = aws_instance.web_server.id
+  port             = 80
+}

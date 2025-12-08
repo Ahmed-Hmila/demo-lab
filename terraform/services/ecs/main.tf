@@ -127,9 +127,15 @@ resource "aws_ecs_service" "hello_ecs" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = data.terraform_remote_state.infra.outputs.public_subnet_ids
+    subnets          = data.terraform_remote_state.infra.outputs.private_subnet_ids # Utiliser les sous-réseaux privés
     security_groups  = [data.terraform_remote_state.infra.outputs.ecs_sg_id]
-    assign_public_ip = true
+    assign_public_ip = false # Pas besoin d'IP publique derrière un ALB
+  }
+
+  load_balancer {
+    target_group_arn = data.terraform_remote_state.infra.outputs.tg_ecs_arn
+    container_name   = "hello-ecs-container"
+    container_port   = 80
   }
 
   depends_on = [
